@@ -1,17 +1,21 @@
 import torch
-from transformers import DistilBertForMaskedLM, DistilBertTokenizer
+from transformers import DistilBertTokenizer
+import mlflow.pytorch
 
-# Model and tokenizer initialization for DistilBERT
-model_name = "distilbert-base-uncased"
+# Define model path (replace 'model_uri' with the URI where your model is stored in MLflow)
+# Example: if it's in the latest run of an experiment, use 'models:/mlm-distilbert-model/Production' or a similar path.
+model_uri = "models:/DistilBERT-MLM-Experiment/Production"  # Adjust version or use 'Production' if registered
 
-# Load model and tokenizer from Hugging Face
-model = DistilBertForMaskedLM.from_pretrained(model_name)
-tokenizer = DistilBertTokenizer.from_pretrained(model_name)
+# Load model from MLflow
+loaded_model = mlflow.pytorch.load_model(model_uri)
+
+# Load tokenizer (assuming it's saved as an artifact in the model's MLflow path)
+tokenizer = DistilBertTokenizer.from_pretrained("tokenizer")  # Adjust path if needed
 
 # Move model to appropriate device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-model.eval()  # Set model to evaluation mode
+loaded_model.to(device)
+loaded_model.eval()  # Set model to evaluation mode
 
 # Define a function to make predictions
 def predict_masked_text(text):
@@ -21,7 +25,7 @@ def predict_masked_text(text):
 
     # Predict masked token
     with torch.no_grad():
-        outputs = model(**inputs)
+        outputs = loaded_model(**inputs)
         predictions = outputs.logits
 
     # Get the index of the [MASK] token
@@ -37,6 +41,6 @@ def predict_masked_text(text):
     return result_text
 
 # Example usage
-text = "A human in space is a [MASK]."
+text = "The capital of Belgium is [MASK]."
 predicted_text = predict_masked_text(text)
 print("Predicted text:", predicted_text)

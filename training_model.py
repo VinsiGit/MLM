@@ -4,6 +4,8 @@ from transformers import DataCollatorForLanguageModeling
 from datasets import load_dataset
 import mlflow
 import mlflow.pytorch
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Set device for model training
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -36,9 +38,9 @@ data_collator = DataCollatorForLanguageModeling(
 # Set training arguments
 training_args = TrainingArguments(
     output_dir="./mlm-model",
-    evaluation_strategy="epoch",
+    eval_strategy="epoch",
     per_device_train_batch_size=8,
-    num_train_epochs=1,
+    num_train_epochs=3,
     save_steps=10_000,
     save_total_limit=2,
     logging_dir="./logs",
@@ -66,15 +68,32 @@ with mlflow.start_run():
 
     # Start training and evaluation
     trainer.train()
+    
+    model_save_path = "./huggingface_model"
+    model.save_pretrained(model_save_path)
+    tokenizer.save_pretrained(model_save_path)
 
     # Log the model
     mlflow.pytorch.log_model(model, "mlm-distilbert-model")
 
     # Optional: Log the tokenizer files as artifacts
-    tokenizer.save_pretrained("tokenizer")
+    # tokenizer.save_pretrained("tokenizer")
     mlflow.log_artifacts("tokenizer", artifact_path="tokenizer")
 
     # Log final metrics if needed
     eval_results = trainer.evaluate()
     for key, value in eval_results.items():
         mlflow.log_metric(key, value)
+        
+    # Plot training loss
+    training_loss = [entry['loss'] for entry in trainer.state.log_history if 'loss' in entry]
+    epochs = [entry['epoch'] for entry in trainer.state.log_history if 'loss' in entry]
+
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(x=epochs, y=training_loss, marker='o')
+    plt.title('Training Loss Over Epochs')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.savefig("training_loss.png")
+    plt.show()
+    

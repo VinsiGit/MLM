@@ -164,3 +164,4 @@ cython_debug/
 /mlruns
 /mlm-model
 /tokenizer
+/huggingface_model
