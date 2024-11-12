@@ -1,11 +1,13 @@
+import os
+import math
 import torch
 from transformers import DistilBertForMaskedLM, DistilBertTokenizer, Trainer, TrainingArguments
 from transformers import DataCollatorForLanguageModeling
 from datasets import load_dataset
-import mlflow
-import mlflow.pytorch
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+
 
 # Set device for model training
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -21,11 +23,9 @@ dataset = load_dataset("wikitext", "wikitext-2-raw-v1")
 train_dataset = dataset["train"]
 eval_dataset = dataset["validation"]
 
-
 # Tokenize datasets
 def tokenize_function(examples):
     return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=128)
-
 
 tokenized_train_dataset = train_dataset.map(tokenize_function, batched=True)
 tokenized_eval_dataset = eval_dataset.map(tokenize_function, batched=True)
@@ -44,6 +44,8 @@ training_args = TrainingArguments(
     save_steps=10_000,
     save_total_limit=2,
     logging_dir="./logs",
+    logging_steps=100,
+    report_to="none",
 )
 
 # Initialize Trainer
@@ -55,45 +57,60 @@ trainer = Trainer(
     eval_dataset=tokenized_eval_dataset
 )
 
-# MLflow experiment setup
-mlflow.set_experiment("DistilBERT-MLM-Experiment")
+# Start training and evaluation
+trainer.train()
 
-# Start MLflow run
-with mlflow.start_run():
-    # Log training arguments as parameters
-    mlflow.log_param("model_name", model_name)
-    mlflow.log_param("per_device_train_batch_size", training_args.per_device_train_batch_size)
-    mlflow.log_param("num_train_epochs", training_args.num_train_epochs)
-    mlflow.log_param("mlm_probability", 0.15)
 
-    # Start training and evaluation
-    trainer.train()
-    
-    model_save_path = "./huggingface_model"
-    model.save_pretrained(model_save_path)
-    tokenizer.save_pretrained(model_save_path)
 
-    # Log the model
-    mlflow.pytorch.log_model(model, "mlm-distilbert-model")
+model_save_path = "./huggingface_model"
+model.save_pretrained(model_save_path)
+tokenizer.save_pretrained(model_save_path)
 
-    # Optional: Log the tokenizer files as artifacts
-    # tokenizer.save_pretrained("tokenizer")
-    mlflow.log_artifacts("tokenizer", artifact_path="tokenizer")
+# Extract training loss and validation perplexity
+training_loss = trainer.state.log_history
+print(training_loss)
+# Extract loss, grad_norm, and epoch
+loss_values = []
+grad_norm_values = []
+epochs = []
 
-    # Log final metrics if needed
-    eval_results = trainer.evaluate()
-    for key, value in eval_results.items():
-        mlflow.log_metric(key, value)
-        
-    # Plot training loss
-    training_loss = [entry['loss'] for entry in trainer.state.log_history if 'loss' in entry]
-    epochs = [entry['epoch'] for entry in trainer.state.log_history if 'loss' in entry]
+for entry in training_loss:
+    if 'loss' in entry and 'grad_norm' in entry and 'epoch' in entry:
+        loss_values.append(entry['loss'])
+        grad_norm_values.append(entry['grad_norm'])
+        epochs.append(entry['epoch'])
 
-    plt.figure(figsize=(10, 6))
-    sns.lineplot(x=epochs, y=training_loss, marker='o')
-    plt.title('Training Loss Over Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.savefig("training_loss.png")
-    plt.show()
-    
+# Convert epochs to numpy array for polyfit
+epochs_np = np.array(epochs)
+
+# ----- Plot Loss Over Epochs with Trend Line -----
+plt.figure(figsize=(10, 6))
+sns.lineplot(x=epochs, y=loss_values, marker='o', label='Loss')
+
+# Calculate trend line
+loss_trend = np.polyfit(epochs_np, loss_values, 1)
+loss_trend_line = np.polyval(loss_trend, epochs_np)
+plt.plot(epochs_np, loss_trend_line, color='red', label='Trend Line')
+
+plt.title('Loss Over Epochs')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.savefig(os.path.join('images', "loss_with_trend.png"))
+plt.show()
+
+# ----- Plot Grad Norm Over Epochs with Trend Line -----
+plt.figure(figsize=(10, 6))
+sns.lineplot(x=epochs, y=grad_norm_values, marker='o', label='Grad Norm', color='orange')
+
+# Calculate trend line
+grad_trend = np.polyfit(epochs_np, grad_norm_values, 1)
+grad_trend_line = np.polyval(grad_trend, epochs_np)
+plt.plot(epochs_np, grad_trend_line, color='red', label='Trend Line')
+
+plt.title('Grad Norm Over Epochs')
+plt.xlabel('Epoch')
+plt.ylabel('Grad Norm')
+plt.legend()
+plt.savefig(os.path.join('images', "grad_norm_with_trend.png"))
+plt.show()

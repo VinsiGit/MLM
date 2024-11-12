@@ -37,6 +37,6 @@ def predict_masked_text(text):
     return result_text
 
 # Example usage
-text = "A human in space is a [MASK]."
+text = "Belgium is a [MASK]."
 predicted_text = predict_masked_text(text)
 print("Predicted text:", predicted_text)
